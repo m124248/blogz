@@ -1,93 +1,173 @@
-from flask import Flask, request, redirect, render_template
+
+from flask import Flask, request, redirect, render_template, flash, session
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 app.config['DEBUG'] = True
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://build-a-blog:blogit@localhost:8889/build-a-blog'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://blogz:password@localhost:8889/blogz'
 app.config['SQLALCHEMY_ECHO'] = True
 db = SQLAlchemy(app)
-
+app.secret_key = 'F*4&8P9vmwJbmdtw'
 
 class Blog(db.Model):
+
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(120))
-    content = db.Column(db.String(9999))
+    title = db.Column(db.String(255))
+    body = db.Column(db.String(500))
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
-    def __init__(self, title, content):
+    def __init__(self, title, body, owner):
         self.title = title
-        self.content = content
+        self.body = body
+        self.owner = owner
 
 
-@app.route("/newpost", methods=['POST', 'GET'])
-def new_post(): 
+class User(db.Model):
 
-    if request.method == 'POST':    
-        title = request.form['title']
-        content = request.form['content']
-        errors = False
-        if len(title) < 1 or len(content) < 1:
-            title_error = ""
-            body_error = "Please fill in the body"
-            errors = True
-            if len(title) < 1:
-                title_error = "Please fill in the title"
-                errors = True
-            if len(content) < 1:
-                body_error = "Please fill in the body"
-                errors = True
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True)
+    password = db.Column(db.String(100))
+    blogs = db.relationship('Blog', backref='owner')
+
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
 
 
-        if errors == True:
-            return render_template("/newpost.html", title_error=title_error, body_error=body_error)
+@app.before_request
+def require_login():
+    allowed_routes = ['index', 'login', 'register', 'blog']
+    if request.endpoint not in allowed_routes and 'username' not in session:
+        flash("you are not logged in", "error")
+        return redirect('/login')
 
-        if errors == False:
-            title = request.form['title']
-            content = request.form['content']  
-            new_entry = Blog(title, content)
-            db.session.add(new_entry)
-            db.session.commit()
-            blog_id = new_entry.id
-            return redirect("/individual-blog?id={0}".format(blog_id))
+
+@app.route('/login', methods=["POST", "GET"])
+def login():
+    if request.method == "GET":
+        return render_template('login.html', pagetitle="Log In to Your Blog")
+    username = request.form["username"]
+    password = request.form["password"]
+    existing_user = User.query.filter_by(username=username).first()
+    user = User.query.all()
+    error = False
+
+    if not existing_user:
+        flash("Username is not registered", "error")
+        error = True
+
+    if not error:
+         if existing_user and existing_user.password == password:
+            session['username'] = username
+            flash("You Have Been Logged in")
+            return redirect('/newpost')
 
     else:
-        return render_template("newpost.html")
-
-#TODO: DONE
-#One of the first and easiest changes is to make the header for the blog title on the home page be a link. 
-# But what url do we want it to link to? Well, this is the format that we want the url of a single blog entry to have:
-# ./blog?id=6 (Here 6 is just one example of an id number for a blog post.) 
-# So using jinja2 templating syntax, how can you make sure that each blog entry that is generated on the main page 
-# has an href with a query parameter corresponding to its id?
-#TODO: 
-#The next thing we need to determine is how we are going to handle an additional GET request on our 
-# homepage since we are already handling a GET request there. 
-# Of course, the difference is that in this use case it's a GET request with query parameters. 
-# So we'll want to handle the GET requests differently, returning a different template,
-#  depending on the contents (or lack thereof) of the dictionary request.args.
-#TODO: 
-#Finally, we need to think about how the template is going to know which blog's data to display. 
-# The blog object will be passed into the template via render_template. 
-# What are the steps we need to take to get the right blog object (the one that has the id we'll get from the url) 
-# from the database and into the render_template function call?
+        return render_template('login.html', pagetitle="Log In to Your Blog", password=password, username=username)
 
 
-@app.route("/blog", methods=['POST', 'GET'])
-def blog_list():    
-    blogs = Blog.query.all()
-    return render_template("blog.html", blogs=blogs)
+@app.route('/signup', methods=["POST", "GET"])
+def register():
+    if request.method == "GET":
+        return render_template('signup.html', pagetitle="Create a Blog account")
+
+    username = request.form["username"]
+    password = request.form["password"]
+    verify = request.form["verify"]
+    existing_user = User.query.filter_by(username=username).first()
+    error = False
+    if len(username) < 3:
+        flash("Username is too short or left blank", "error")
+        error = True
+
+    if  existing_user:
+        flash("That user already exists", "error")
+        error = True
+
+    if len(password) < 3:
+        flash("Password is too short or left blank", "error")
+        error = True
+
+    if verify != password:
+        flash("Password does not match", "error")
+        error = True
+
+    if not error:
+        if request.method == "POST":
+            new_user = User(username, password)
+            db.session.add(new_user)
+            db.session.commit()
+            session['username'] = username
+            return redirect('/newpost')
+    else:
+        return render_template('signup.html', pagetitle="Create a Blog account", username=username, password=password, verify=verify)
 
 
+@app.route('/logout')
+def logout():
+    if session:
+        del session['username']
+        flash('You Have Been Logged out')
+    return redirect('/blog')
 
-@app.route("/individual-blog")
-def individual_blog():
-    blog_query = request.args.get('id')
-    blog = Blog.query.get(blog_query)
-    return render_template("individual-blog.html", blog=blog)
+
+@app.route('/blog', methods=["POST", "GET"])
+def blog():
+    posts = Blog.query.all()
+    if "id" in request.args:
+        id = request.args.get('id')
+        post = Blog.query.get(id)
+        return render_template('blogmain.html', pagetitle="Build A Blog", body=post.body, title=post.title, owner=post.owner)
+
+    if "user" in request.args:
+        owner_id = request.args.get('user')
+        username = User.query.get(owner_id)
+        userposts = Blog.query.filter_by(owner_id=owner_id)
+
+        return render_template('singlepost.html', pagetitle="Posts by this user", user=username, userposts=userposts)
+
+    return render_template('posts.html', pagetitle="build a blog", posts=posts)
 
 
-@app.route("/", methods=['POST', 'GET'])
+@app.route('/newpost', methods=["POST", "GET"])
+def newpost():
+
+    if request.method == "GET":
+        return render_template('newpost.html', pagetitle="build a blog")
+    title = request.form["title"]
+    body = request.form["body"]
+    error = False
+
+    if len(title) <= 0:
+        flash("Title cannot be left blank", "error")
+        error = True
+    if len(title) > 255:
+        flash("Title cannot be greater than 255 characters long", "error")
+        error = True
+    if len(body) > 500:
+        flash("Post body cannot be greater than 500 characters in length", "error")
+        error = True
+    if len(body) <= 0:
+        flash("Post body cannot be left blank", "error")
+        error = True
+
+    if not error:
+        if request.method == "POST":
+            post_title = request.form["title"]
+            post_body = request.form["body"]
+            owner = User.query.filter_by(username=session['username']).first()
+            new_post = Blog(post_title, post_body, owner)
+            db.session.add(new_post)
+            db.session.commit()
+            
+            return redirect ('/blog')
+    else:
+        return render_template('newpost.html', pagetitle="build a blog", title=title,body=body)
+
+@app.route('/', methods=["POST", "GET"])
 def index():
-    return render_template("base.html")
+    users = User.query.all()
+    return render_template('index.html', pagetitle="List of Blogs!", users=users)
 
 
 if __name__ == '__main__':
