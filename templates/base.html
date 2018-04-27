@@ -1,29 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
     <head>
-        <title>Main Blog Page</title>
-        <style type="text/css">
-            .error {
-                color: red;
-            }
-            h1 {
-                text-align:center;
-            }
-            .textarea {
-                height: 200px;
-                width: 200px;
+        <title>{{title}}</title>
+        <style>
+            .error{
+            color:red;
             }
         </style>
     </head>
-    <body>
-        <header>
-            <a href="/blog">Main Blog Page</a>
-            &emsp;
-            <a href="/newpost">Add a Blog Entry</a>
-        </header>
 
-        {% block content %}
-        {% endblock %}
+<body> 
 
-    </body>
+    <a href="/">Home</a> | <a href="/blog">All Posts</a> | <a href="/newpost">New Post</a> | <a href="/login">Login</a> | <a href="/logout">Logout</a>
+
+    {% block content %}
+    {% endblock %}  
+
+</body>
 </html>
